@@ -1,0 +1,39 @@
+main函数传入参数初始化实例解析
+这是32位x86汇编（使用Intel语法，来自IDA反编译代码），属于C程序的启动代码（_start），负责初始化环境并调用__libc_start_main，最终跳转到main函数。代码片段来自Linux环境的可执行文件。
+程序启动时，栈的初始布局（argc参数数量、argv参数数组、envp环境变量数组的顺序）是由操作系统内核在加载可执行文件并创建进程时直接设置的，这一块的栈用户只读取，不修改。这里的不修改是指用户态代码会修改栈指针（esp）和弹出数据（如 pop esi），但不会修改 argv 和 envp 指针数组的内容和布局。内核初始化的 argv 和 envp 的指针值（即字符串地址）是只读的，用户态代码只是复用这些指针，不会覆盖或移动它们。
+下面是对这段代码的解读：
+xor     ebp, ebp //用于清空ebp寄存器，将栈指针初始化。
+pop     esi //记住这里将argc指针参数传入了esi寄存器。
+mov     ecx, esp //将当前esp的值（指向argv的地址）保存到ecx寄存器。 
+argc
+argv[]
+envp[]（栈底）
+and     esp, 0FFFFFFF0h //初始化指令，对齐字节便于访问，在程 
+                          序开头经常能看到。
+push    eax
+main 地址（栈顶）
+argc指针
+ubp_av
+init地址
+fini地址
+rtld_fini  
+stack_end
+eax值
+argv[]
+envp[]（栈底）
+push    esp             ; stack_end 
+//__libc_start_main的stack_end参数，表示栈的结束地址（用于栈边界检查）。
+push    edx             ; rtld_fini
+push    offset fini     ; fini
+push    offset init     ; init
+push    ecx             ; ubp_av //哦这是刚刚argv的地址
+push    esi             ; argc //这就是上面传入esi的数据。
+push    offset main     ; main 
+call    ___libc_start_main //call从栈中读取地址，从而跳转到___libc_start_main函数执行。
+从main地址到stack_end是___libc_start_main函数调用的参数，所以说，main函数怎么调用参数呢？ 
+__libc_start_main 内部处理：从栈中读取 argc 和 ubp_av（argv），通过 argv[argc+1] 计算出 envp 的地址，最终调用 main 函数，传递三个参数main(argc, argv, envp)，当然最终envp参数可有可无，以下是C中main函数的合法形式：
+int main(void);
+int main(int argc, char **argv);
+int main(int argc, char **argv, char **envp);
+envp参数是否存在取决于main是否声明。
+argv 是用户通过命令行传递的输入，从 argv[1] 开始即为用户参数，注意argv不是系统生成的。逆向分析时就可知道如何处理此类用户输入了，不一定要有scanf等明确的输入语句。
