@@ -1,0 +1,59 @@
+编辑器在编译时会对代码进行优化，将函数隐藏而使其简化，编译时添加启动代码与调试信息、运行时库等。
+在简单的Helloworld程序中，可以通过动态调试看到他们的区别。
+在优化版中，没有办法直观地找到main函数，原因是被编译器高度简化隐藏，打开olldbg，可以通过索引字符串迅速定位主函数功能位置。
+00EE10D0  /$ 55             PUSH EBP
+00EE10D1  |. 8BEC           MOV EBP,ESP
+00EE10D3  |. 68 401AEE00    PUSH Hellowor.00EE1A40
+00EE10D8  |. 68 C0E1EF00    PUSH Hellowor.00EFE1C0                   ;  ASCII "Hello world!"
+00EE10DD  |. 68 F0AFF000    PUSH Hellowor.00F0AFF0
+00EE10E2  |. E8 D9000000    CALL Hellowor.00EE11C0
+00EE10E7  |. 83C4 08        ADD ESP,8
+00EE10EA  |. 8BC8           MOV ECX,EAX                              ; |
+00EE10EC  |. E8 9F160000    CALL Hellowor.00EE2790                   ; \Hellowor.00EE2790
+00EE10F1  |. 33C0           XOR EAX,EAX
+00EE10F3  |. 5D             POP EBP
+00EE10F4  \. C3             RETN
+
+可以看见这里没有典型的main函数特征，却出现了字符串“Helloworld”，有没有可能是出现在了其他代码段如数据的定义呢？（这里不纠结汇编代码含义）
+单步执行，到return结束，可以看见程序执行并打印了Helloworld的字符串，可见这里确实实现了main函数的功能，断定此处是我们最开始要找的main函数。
+再次验证一下，打开IDA查看程序。
+居然没有在函数窗口看见main函数？？只是一个简单的打印函数怎么会出现一堆看不懂的sub_xxxx函数呢？
+这是编译器优化和运行时库封装的典型表现，验证了前面没有在调试中看见典型main函数的汇编代码。
+
+我们再看一下未启动编译器优化得到的Helloworld程序。
+好吧这个程序如果直接索引字符串也并不是直接跳转到了标准main函数处，通过单步执行到达启动函数处（不同编辑器会添加不同的启动函数，这里分析的是virtualC++生成的程序），然后仍然是单步执行，可以顺着找到主函数。
+00D6FB00 > > 55             PUSH EBP
+00D6FB01   . 8BEC           MOV EBP,ESP
+00D6FB03   . 68 8913D600    PUSH Hellowor.00D61389
+00D6FB08   . 68 A0C0E300    PUSH Hellowor.00E3C0A0                                                               ;  ASCII "Hello world!"
+00D6FB0D   . 68 7063E500    PUSH OFFSET Hellowor.etptd_noexit
+00D6FB12   . E8 4239FFFF    CALL Hellowor.00D63459
+00D6FB17   . 83C4 08        ADD ESP,8
+00D6FB1A   . 8BC8           MOV ECX,EAX
+00D6FB1C   . E8 6F6BFFFF    CALL Hellowor.00D66690
+00D6FB21   . 33C0           XOR EAX,EAX
+00D6FB23   . 5D             POP EBP
+00D6FB24   . C3             RETN
+
+真是难找，但总之我们可以在这个程序中看见具有main函数特征的代码片段，同样我们再拖进IDA看看有什么区别。
+.text:0040FB00 ; int __cdecl main()
+.text:0040FB00 _main           proc near               ; CODE XREF: j__main↑j
+.text:0040FB00                 push    ebp
+.text:0040FB01                 mov     ebp, esp
+.text:0040FB03 ; 5:   std::basic_ostream<char,std::char_traits<char>>::operator<<(v0, std::endl<char,std::char_traits<char>>);
+.text:0040FB03                 push    offset j_??$endl@DU?$char_traits@D@std@@@std@@YAAAV?$basic_ostream@DU?$char_traits@D@std@@@0@AAV10@@Z ; _Pfn
+.text:0040FB08 ; 4:   v0 = std::operator<<<std::char_traits<char>>(&std::cout, "Hello world!");
+.text:0040FB08                 push    offset _Val     ; "Hello world!"
+.text:0040FB0D                 push    offset ?cout@std@@3V?$basic_ostream@DU?$char_traits@D@std@@@1@A ; _Ostr
+.text:0040FB12                 call    j_??$?6U?$char_traits@D@std@@@std@@YAAAV?$basic_ostream@DU?$char_traits@D@std@@@0@AAV10@PBD@Z ; std::operator<<<std::char_traits<char>>(std::basic_ostream<char,std::char_traits<char>> &,char const *)
+.text:0040FB17                 add     esp, 8
+.text:0040FB1A                 mov     ecx, eax        ; this
+.text:0040FB1C                 call    j_??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QAEAAV01@P6AAAV01@AAV01@@Z@Z ; std::basic_ostream<char,std::char_traits<char>>::operator<<(std::basic_ostream<char,std::char_traits<char>> & (*)(std::basic_ostream<char,std::char_traits<char>> &))
+.text:0040FB21 ; 6:   return 0;
+.text:0040FB21                 xor     eax, eax
+.text:0040FB23                 pop     ebp
+.text:0040FB24                 retn
+.text:0040FB24 _main           endp
+
+这次在IDA中也能明确看到main函数了，而不是一堆复杂的启动函数。
+分析的两个Helloworld程序可以下载。
