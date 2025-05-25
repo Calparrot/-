@@ -57,3 +57,48 @@
 
 这次在IDA中也能明确看到main函数了，而不是一堆复杂的启动函数。
 分析的两个Helloworld程序可以下载。
+
+如果我在写程序时直接调用windows.h，在编译时则又可以看到不一样的代码。
+这是C的代码
+#include <Windows.h>
+void main() {
+	HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+	const char* msg = "Hello World (Direct API)!\r\n";
+	DWORD bytesWritten;
+	WriteFile(hStdout, msg, strlen(msg), &bytesWritten, NULL);
+	MessageBoxA(NULL, "This is a direct API call", "Info", MB_OK);
+}
+由这段代码编译出来的程序反编译出来是这样，下面展示了主函数部分。
+00371000  /$ 55             PUSH EBP
+00371001  |. 8BEC           MOV EBP,ESP
+00371003  |. 83EC 0C        SUB ESP,0C
+00371006  |. 6A F5          PUSH -0B                                        ; /DevType = STD_OUTPUT_HANDLE
+00371008  |. FF15 08F03700  CALL DWORD PTR DS:[<&KERNEL32.GetStdHandle>]    ; \GetStdHandle
+0037100E  |. 8945 F8        MOV DWORD PTR SS:[EBP-8],EAX
+00371011  |. C745 FC 80F137>MOV DWORD PTR SS:[EBP-4],hellowor.0037F180      ;  ASCII "Hello World (Direct API)!
+"
+00371018  |. 6A 00          PUSH 0
+0037101A  |. 8D45 F4        LEA EAX,DWORD PTR SS:[EBP-C]
+0037101D  |. 50             PUSH EAX
+0037101E  |. 8B4D FC        MOV ECX,DWORD PTR SS:[EBP-4]
+00371021  |. 51             PUSH ECX
+00371022  |. E8 F92F0000    CALL hellowor.00374020
+00371027  |. 83C4 04        ADD ESP,4
+0037102A  |. 50             PUSH EAX                                        ; |nBytesToWrite
+0037102B  |. 8B55 FC        MOV EDX,DWORD PTR SS:[EBP-4]                    ; |
+0037102E  |. 52             PUSH EDX                                        ; |Buffer
+0037102F  |. 8B45 F8        MOV EAX,DWORD PTR SS:[EBP-8]                    ; |
+00371032  |. 50             PUSH EAX                                        ; |hFile
+00371033  |. FF15 0CF03700  CALL DWORD PTR DS:[<&KERNEL32.WriteFile>]       ; \WriteFile
+00371039  |. 6A 00          PUSH 0                                          ; /Style = MB_OK|MB_APPLMODAL
+0037103B  |. 68 9CF13700    PUSH hellowor.0037F19C                          ; |Title = "Info"
+00371040  |. 68 A4F13700    PUSH hellowor.0037F1A4                          ; |Text = "This is a direct API call"
+00371045  |. 6A 00          PUSH 0                                          ; |hOwner = NULL
+00371047  |. FF15 24F13700  CALL DWORD PTR DS:[<&USER32.MessageBoxA>]       ; \MessageBoxA
+0037104D  |. 90             NOP
+0037104E  |. 33C0           XOR EAX,EAX
+00371050  |. 8BE5           MOV ESP,EBP
+00371052  |. 5D             POP EBP
+00371053  \. C3             RETN
+这里与上面不同的是，人在这里看不到封装后的函数，程序直接调用了API函数。
+主要区别就在于，简单来说，这里并没有显示C语言封装后的函数，事实上如果在上面的例子里查看比如printf这样的函数，还是能够看到其调用API接口，只是被隐藏起来了。
