@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PE文件结构解析</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: Consolas, Monaco, 'Andale Mono', monospace;
+            background: #f5f5f5;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 20px auto;
+            border: 1px solid #ddd;
+        }
+        .underline {
+            text-decoration: underline;
+        }
+        .struct {
+            margin-bottom: 30px;
+        }
+        .struct-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .comment {
+            color: #888;
+            font-style: italic;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>PE文件结构解析</h1>
+
+    <h2>PE文件结构概览</h2>
+    <p>PE文件 --- <a href="#DOS头" class="underline">DOS头</a> --- e_magic，DOS签名，必须为MZ</p>
+    <p>PE头 --- e_lfanew，NT头偏移</p>
+    <p>--- ......</p>
+    <p>--- <a href="#DOS存根">DOS存根</a></p>
+    <p>--- NT头 ---</p>
+    <p><a href="#NT头：签名结构体（Signature）">签名结构体</a>，PE文件格式核心标识"PE\0\0"</p>
+    <p>--- <a href="#NT头：文件头（FileHeader）">文件头</a> --- Machine编码</p>
+    <p>--- NumberOfSections，文件节区数量</p>
+    <p>--- SizeOfOptionalHeader，特定架构下的可选头长度</p>
+    <p>--- Characteristics，标识文件属性</p>
+    <p>--- TimeDateStamp，纪录编译创建时间</p>
+    <p>--- ......</p>
+    <p>--- <a href="#NT头：可选头（OptionalHeader）" class="underline">可选头</a> --- magic</p>
+    <p>--- AdressOfEntryPoint，指出程序最先执行的代码起始地址</p>
+    <p>--- ImageBase，指出文件优先装载地址</p>
+    <p>--- SectionAlignment，节区内存中的最小单位</p>
+    <p>--- FileAlignment，节区在磁盘中的最小单位</p>
+    <p>--- SizeOfImage，指定PEImage在虚拟内存中所占的空间大小</p>
+    <p>--- SubSystem，区分系统驱动文件和普通可执行文件</p>
+    <p>--- NumberOfRvaAndSize，指定DataDirectory数组个数</p>
+    <p>--- DataDirectory数组</p>
+    <p>--- ......</p>
+    <p>--- <a href="#节区头" class="underline">节区头</a> --- VirtualSize，内存中节区大小</p>
+    <p>--- VirtualAddress，内存节区起始地址，由可选头SectionAlignment确定</p>
+    <p>--- SizeOfRawData，磁盘中节区所占大小</p>
+    <p>--- PointerToRawData，磁盘节区起始地址，由FileAlignment确定</p>
+    <p>--- Characteristics，节区属性</p>
+    <p>--- ......</p>
+    <p>（code、data、resource存在不同节区，节区头就由上面的结构体组成数组，每个结构体对应一个区）</p>
+    <p><a href="#计算文件偏移" class="underline">计算文件偏移</a></p>
+
+    <h2 id="DOS头">DOS头</h2>
+    <p>共8*8=64字节。</p>
+    
+    <div class="struct">
+        <div class="struct-title">IMAGE_DOS_HEADER 结构体</div>
+        <pre><code>typedef struct _IMAGE_DOS_HEADER {
+    WORD e_magic;      <span class="comment">// DOS签名 "MZ" (0x5A4D)，重要</span>
+    WORD e_cblp;       <span class="comment">// 字节数（最后页）</span>
+    WORD e_cp;         <span class="comment">// 页数</span>
+    WORD e_crlc;       <span class="comment">// 重定位项数</span>
+    WORD e_cparhdr;    <span class="comment">// 头部段数</span>
+    WORD e_minalloc;   <span class="comment">// 最小内存分配</span>
+    WORD e_maxalloc;   <span class="comment">// 最大内存分配</span>
+    WORD e_ss;         <span class="comment">// 初始SS值</span>
+    WORD e_sp;         <span class="comment">// 初始SP值</span>
+    WORD e_csum;       <span class="comment">// 校验和</span>
+    WORD e_ip;         <span class="comment">// 初始IP值</span>
+    WORD e_cs;         <span class="comment">// 初始CS值</span>
+    WORD e_lfarlc;     <span class="comment">// 重定位表偏移</span>
+    WORD e_ovno;       <span class="comment">// 覆盖号</span>
+    WORD e_res[4];     <span class="comment">// 保留字段</span>
+    WORD e_oemid;      <span class="comment">// OEM标识符</span>
+    WORD e_oeminfo;    <span class="comment">// OEM信息</span>
+    WORD e_res2[10];   <span class="comment">// 保留字段</span>
+    LONG e_lfanew;     <span class="comment">// NT头偏移（PE文件起始位置），重要</span>
+} IMAGE_DOS_HEADER, *PIMAGE_DOS_HEADER;</code></pre>
+    </div>
+
+    <img src="media/image1.png" alt="DOS头结构图示">
+    <p>图 1 DOS头</p>
+
+    <h2 id="DOS存根">DOS存根</h2>
+    <p>在DOS系统下提示一句话，包含数据和代码，可以修改，但是修改不可覆盖DOS头和NT头，长度不能随意修改，如果缩短或增长需要修改地址，会很麻烦。</p>
+    
+    <img src="media/image2.png" alt="DOS存根图示">
+    <p>图 2 DOS存根</p>
+
+    <h2>NT头</h2>
+    <p>没什么说的。</p>
+    
+    <div class="struct">
+        <pre><code>typedef struct _IMAGE_NT_HEADERS {
+    DWORD Signature;                   <span class="comment">// PE签名 "PE\0\0" (0x00004550)</span>
+    IMAGE_FILE_HEADER FileHeader;       <span class="comment">// 文件头</span>
+    IMAGE_OPTIONAL_HEADER OptionalHeader; <span class="comment">// 可选头（32/64位）</span>
+} IMAGE_NT_HEADERS32, *PIMAGE_NT_HEADERS32;
+
+<span class="comment">// 64位版本（IMAGE_OPTIONAL_HEADER64）</span>
+typedef struct _IMAGE_NT_HEADERS64 {
+    DWORD Signature;
+    IMAGE_FILE_HEADER FileHeader;
+    IMAGE_OPTIONAL_HEADER64 OptionalHeader;
+} IMAGE_NT_HEADERS64, *PIMAGE_NT_HEADERS64;</code></pre>
+    </div>
+
+    <h3 id="NT头：签名结构体（Signature）">NT头：签名结构体（Signature）</h3>
+    <p>PE文件核心标识，内容"PE\0\0"。</p>
+    
+    <img src="media/image3.png" alt="PE签名图示">
+    <p>图 3 签名</p>
+
+    <h3 id="NT头：文件头（FileHeader）">NT头：文件头（FileHeader，也叫标准头，COFF头）</h3>
+    <p>固定20字节。</p>
+    
+    <div class="struct">
+        <pre><code>typedef struct _IMAGE_FILE_HEADER {
+    WORD Machine;               <span class="comment">// 目标CPU架构（如0x014C=Intel 386）</span>
+    WORD NumberOfSections;      <span class="comment">// 节区数量</span>
+    DWORD TimeDateStamp;        <span class="comment">// 编译时间戳</span>
+    DWORD PointerToSymbolTable; <span class="comment">// 符号表偏移（调试用）</span>
+    DWORD NumberOfSymbols;      <span class="comment">// 符号数量</span>
+    WORD SizeOfOptionalHeader;  <span class="comment">// 可选头大小</span>
+    WORD Characteristics;       <span class="comment">// 文件属性（如可执行/DLL）</span>
+} IMAGE_FILE_HEADER, *PIMAGE_FILE_HEADER;</code></pre>
+    </div>
+
+    <p>其中Characteristics按bit位定义，每一位含义如下：</p>
+    <table>
+        <tr>
+            <th>Bit</th>
+            <th>名称</th>
+            <th>值</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>Bit0</td>
+            <td>IMAGE_FILE_RELOCS_STRIPPED</td>
+            <td>0x0001</td>
+            <td>重定位信息已移除（通常是 EXE）</td>
+        </tr>
+        <tr>
+            <td>Bit1</td>
+            <td>IMAGE_FILE_EXECUTABLE_IMAGE</td>
+            <td>0x0002</td>
+            <td>文件是可执行的</td>
+        </tr>
+        <tr>
+            <td>Bit2</td>
+            <td>IMAGE_FILE_LINE_NUMS_STRIPPED</td>
+            <td>0x0004</td>
+            <td>行号信息已移除（已废弃）</td>
+        </tr>
+        <tr>
+            <td>Bit3</td>
+            <td>IMAGE_FILE_LOCAL_SYMS_STRIPPED</td>
+            <td>0x0008</td>
+            <td>符号表已移除（已废弃）</td>
+        </tr>
+        <tr>
+            <td>Bit4</td>
+            <td>IMAGE_FILE_AGGRESIVE_WS_TRIM</td>
+            <td>0x0010</td>
+            <td>优化工作集（已废弃）</td>
+        </tr>
+        <tr>
+            <td>Bit5</td>
+            <td>IMAGE_FILE_LARGE_ADDRESS_AWARE</td>
+            <td>0x0020</td>
+            <td>支持 >2GB 地址空间</td>
+        </tr>
+        <tr>
+            <td>Bit7</td>
+            <td>IMAGE_FILE_BYTES_REVERSED_LO</td>
+            <td>0x0080</td>
+            <td>小端字节序（已废弃）</td>
+        </tr>
+        <tr>
+            <td>Bit8</td>
+            <td>IMAGE_FILE_32BIT_MACHINE</td>
+            <td>0x0100</td>
+            <td>32 位架构（x86）</td>
+        </tr>
+        <tr>
+            <td>Bit9</td>
+            <td>IMAGE_FILE_DEBUG_STRIPPED</td>
+            <td>0x0200</td>
+            <td>调试信息已移除</td>
+        </tr>
+        <tr>
+            <td>Bit10</td>
+            <td>IMAGE_FILE_REMOVABLE_RUN_FROM_SWAP</td>
+            <td>0x0400</td>
+            <td>可从交换设备运行（已废弃）</td>
+        </tr>
+        <tr>
+            <td>Bit11</td>
+            <td>IMAGE_FILE_NET_RUN_FROM_SWAP</td>
+            <td>0x0800</td>
+            <td>可从网络运行（已废弃）</td>
+        </tr>
+        <tr>
+            <td>Bit12</td>
+            <td>IMAGE_FILE_SYSTEM</td>
+            <td>0x1000</td>
+            <td>系统文件（如内核驱动）</td>
+        </tr>
+        <tr>
+            <td>Bit13</td>
+            <td>IMAGE_FILE_DLL</td>
+            <td>0x2000</td>
+            <td>这是一个 DLL 文件</td>
+        </tr>
+        <tr>
+            <td>Bit14</td>
+            <td>IMAGE_FILE_UP_SYSTEM_ONLY</td>
+            <td>0x4000</td>
+            <td>仅单处理器运行（已废弃）</td>
+        </tr>
+        <tr>
+            <td>Bit15</td>
+            <td>IMAGE_FILE_BYTES_REVERSED_HI</td>
+            <td>0x8000</td>
+            <td>大端字节序（已废弃）</td>
+        </tr>
+    </table>
+
+    <img src="media/image4.png" alt="标准头图示">
+    <p>图 4 标准头</p>
+
+    <h3 id="NT头：可选头（OptionalHeader）">NT头：可选头（OptionalHeader）</h3>
+    <p>长度由文件头里的 SizeOfOptionalHeader 确定，32位PE文件通常为0xE0（24*8=224字节），64位PE文件通常为0xF0（30*8=240字节）。</p>
+    
+    <div class="struct">
+        <pre><code>typedef struct _IMAGE_OPTIONAL_HEADER32 {
+    <span class="comment">// 标准字段（所有PE文件）</span>
+    WORD Magic;                     <span class="comment">// 标识：0x10B=32位，0x20B=64位</span>
+    BYTE MajorLinkerVersion;        <span class="comment">// 链接器主版本号</span>
+    BYTE MinorLinkerVersion;        <span class="comment">// 链接器次版本号</span>
+    DWORD SizeOfCode;               <span class="comment">// 所有代码段的总大小</span>
+    DWORD SizeOfInitializedData;    <span class="comment">// 已初始化数据的总大小</span>
+    DWORD SizeOfUninitializedData;  <span class="comment">// 未初始化数据（BSS）的总大小</span>
+    DWORD AddressOfEntryPoint;      <span class="comment">// 入口点RVA（相对于ImageBase）</span>
+    DWORD BaseOfCode;               <span class="comment">// 代码段的起始RVA</span>
+    DWORD BaseOfData;               <span class="comment">// 数据段的起始RVA（仅32位存在）</span>
+    
+    <span class="comment">// NT扩展字段（Windows专用）</span>
+    DWORD ImageBase;                <span class="comment">// 进程内存中的优先加载地址，重要</span>
+    DWORD SectionAlignment;         <span class="comment">// 内存中的节区对齐粒度（通常0x1000）</span>
+    DWORD FileAlignment;            <span class="comment">// 文件中的节区对齐粒度（通常0x200）</span>
+    WORD MajorOperatingSystemVersion; <span class="comment">// 要求的最低OS主版本</span>
+    WORD MinorOperatingSystemVersion; <span class="comment">// 要求的最低OS次版本</span>
+    WORD MajorImageVersion;         <span class="comment">// 映像主版本号（用户定义）</span>
+    WORD MinorImageVersion;         <span class="comment">// 映像次版本号（用户定义）</span>
+    WORD MajorSubsystemVersion;     <span class="comment">// 子系统主版本（通常4=Win95）</span>
+    WORD MinorSubsystemVersion;     <span class="comment">// 子系统次版本</span>
+    DWORD Win32VersionValue;        <span class="comment">// 保留（必须为0）</span>
+    DWORD SizeOfImage;              <span class="comment">// 映像在内存中的总大小</span>
+    DWORD SizeOfHeaders;            <span class="comment">// 所有头部的总大小（对齐后）</span>
+    DWORD CheckSum;                 <span class="comment">// 校验和（驱动/DLL常用）</span>
+    WORD Subsystem;                 <span class="comment">// 子系统类型（1=Native，2=GUI，3=CUI）</span>
+    WORD DllCharacteristics;        <span class="comment">// DLL属性（如ASLR/DEP）</span>
+    DWORD SizeOfStackReserve;       <span class="comment">// 初始保留的栈大小</span>
+    DWORD SizeOfStackCommit;        <span class="comment">// 初始提交的栈大小</span>
+    DWORD SizeOfHeapReserve;        <span class="comment">// 初始保留的堆大小</span>
+    DWORD SizeOfHeapCommit;         <span class="comment">// 初始提交的堆大小</span>
+    DWORD LoaderFlags;              <span class="comment">// 保留（已废弃）</span>
+    DWORD NumberOfRvaAndSizes;      <span class="comment">// 数据目录项数（通常16）</span>
+    IMAGE_DATA_DIRECTORY DataDirectory[IMAGE_NUMBEROF_DIRECTORY_ENTRIES]; <span class="comment">// 数据目录表</span>
+} IMAGE_OPTIONAL_HEADER32, *PIMAGE_OPTIONAL_HEADER32;</code></pre>
+    </div>
+
+    <div class="struct">
+        <div class="struct-title">IMAGE_DATA_DIRECTORY 结构</div>
+        <pre><code>typedef struct _IMAGE_DATA_DIRECTORY {
+    DWORD VirtualAddress; <span class="comment">// 数据的 RVA（相对虚拟地址）</span>
+    DWORD Size;          <span class="comment">// 数据的大小（字节数）</span>
+} IMAGE_DATA_DIRECTORY, *PIMAGE_DATA_DIRECTORY;</code></pre>
+    </div>
+
+    <p>DataDirectory 是数组，通常包含16个IMAGE_DATA_DIRECTORY 结构体（每个8字节），储存RVA，下面是数组每一项的含义：</p>
+    <table>
+        <tr>
+            <th>索引</th>
+            <th>目录项</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>0</td>
+            <td>EXPORT Directory</td>
+            <td>导出表（DLL 导出的函数列表），重要</td>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>IMPORT Directory</td>
+            <td>导入表（依赖的外部 DLL 函数），重要</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td>RESOURCE Directory</td>
+            <td>资源表</td>
+        </tr>
+        <tr>
+            <td>3</td>
+            <td>EXCEPTION Directory</td>
+            <td>异常处理表</td>
+        </tr>
+        <tr>
+            <td>4</td>
+            <td>SECURITY Directory</td>
+            <td>数字签名</td>
+        </tr>
+        <tr>
+            <td>5</td>
+            <td>BASERELOC Directory</td>
+            <td>重定位表</td>
+        </tr>
+        <tr>
+            <td>6</td>
+            <td>DEBUG Directory</td>
+            <td>调试信息</td>
+        </tr>
+        <tr>
+            <td>7</td>
+            <td>COPYRIGHT Directory</td>
+            <td>架构特定数据</td>
+        </tr>
+        <tr>
+            <td>8</td>
+            <td>GLOBALPTR Directory</td>
+            <td>全局指针寄存器</td>
+        </tr>
+        <tr>
+            <td>9</td>
+            <td>TLS Directory</td>
+            <td>TLS表，重要</td>
+        </tr>
+        <tr>
+            <td>A</td>
+            <td>LOAD_CONFIG Directory</td>
+            <td>加载配置表</td>
+        </tr>
+        <tr>
+            <td>B</td>
+            <td>BOUND_IMPORT Directory</td>
+            <td>绑定导入表</td>
+        </tr>
+        <tr>
+            <td>C</td>
+            <td>IAT Directory</td>
+            <td>导入地址表（IAT）</td>
+        </tr>
+        <tr>
+            <td>D</td>
+            <td>DELAY_IMPORT Directory</td>
+            <td>延迟加载导入表</td>
+        </tr>
+        <tr>
+            <td>E</td>
+            <td>COM_DESCRIPTOR Directory</td>
+            <td>.NET元数据</td>
+        </tr>
+        <tr>
+            <td>F</td>
+            <td>Reserved Directory</td>
+            <td>保留，未使用</td>
+        </tr>
+    </table>
+
+    <img src="media/image5.png" alt="可选头图示">
+    <p>图 5 可选头</p>
+
+    <div class="struct">
+        <div class="struct-title">64位版本的可选头</div>
+        <pre><code>typedef struct _IMAGE_OPTIONAL_HEADER64 {
+    <span class="comment">// 标准字段（与32位类似）</span>
+    WORD Magic;                     <span class="comment">// 标识：0x20B=64位</span>
+    BYTE MajorLinkerVersion;
+    BYTE MinorLinkerVersion;
+    DWORD SizeOfCode;
+    DWORD SizeOfInitializedData;
+    DWORD SizeOfUninitializedData;
+    DWORD AddressOfEntryPoint;      <span class="comment">// 入口点RVA</span>
+    DWORD BaseOfCode;               <span class="comment">// 代码段起始RVA</span>
+    <span class="comment">// BaseOfData 字段在64位中不存在！</span>
+    
+    <span class="comment">// NT扩展字段</span>
+    ULONGLONG ImageBase;            <span class="comment">// 64位优先加载地址</span>
+    DWORD SectionAlignment;
+    DWORD FileAlignment;
+    WORD MajorOperatingSystemVersion;
+    WORD MinorOperatingSystemVersion;
+    WORD MajorImageVersion;
+    WORD MinorImageVersion;
+    WORD MajorSubsystemVersion;
+    WORD MinorSubsystemVersion;
+    DWORD Win32VersionValue;
+    DWORD SizeOfImage;
+    DWORD SizeOfHeaders;
+    DWORD CheckSum;
+    WORD Subsystem;
+    WORD DllCharacteristics;
+    ULONGLONG SizeOfStackReserve;   <span class="comment">// 64位栈/堆大小</span>
+    ULONGLONG SizeOfStackCommit;
+    ULONGLONG SizeOfHeapReserve;
+    ULONGLONG SizeOfHeapCommit;
+    DWORD LoaderFlags;
+    DWORD NumberOfRvaAndSizes;      <span class="comment">// 数据目录项数（通常16）</span>
+    IMAGE_DATA_DIRECTORY DataDirectory[IMAGE_NUMBEROF_DIRECTORY_ENTRIES]; <span class="comment">// 数据目录表</span>
+} IMAGE_OPTIONAL_HEADER64, *PIMAGE_OPTIONAL_HEADER64;</code></pre>
+    </div>
+
+    <h2 id="节区头">节区头（节表）</h2>
+    <p>每个节区头固定40字节。</p>
+    
+    <div class="struct">
+        <pre><code>typedef struct _IMAGE_SECTION_HEADER {
+    BYTE Name[8];                <span class="comment">// 节区名称（如 ".idata"）</span>
+    DWORD VirtualSize;           <span class="comment">// 内存中节区实际大小（可能未对齐）</span>
+    DWORD VirtualAddress;        <span class="comment">// 内存中的 RVA（关键！用于计算）</span>
+    DWORD SizeOfRawData;         <span class="comment">// 文件中节区大小（对齐后）</span>
+    DWORD PointerToRawData;      <span class="comment">// 文件中的偏移（关键！用于计算）</span>
+    DWORD PointerToRelocations;  <span class="comment">// 重定位表偏移（无用，除非是OBJ文件）</span>
+    DWORD PointerToLinenumbers;  <span class="comment">// 调试信息（通常为0）</span>
+    WORD NumberOfRelocations;    <span class="comment">// 重定位项数（无用）</span>
+    WORD NumberOfLinenumbers;    <span class="comment">// 调试信息（通常为0）</span>
+    DWORD Characteristics;       <span class="comment">// 节区属性（如可读/可写）</span>
+} IMAGE_SECTION_HEADER;</code></pre>
+    </div>
+
+    <p>常见节区名及其作用：</p>
+    <table>
+        <tr>
+            <th>节区名</th>
+            <th>作用</th>
+        </tr>
+        <tr>
+            <td>.text</td>
+            <td>存储程序的可执行代码（机器指令）</td>
+        </tr>
+        <tr>
+            <td>.data</td>
+            <td>存储已初始化的全局/静态变量</td>
+        </tr>
+        <tr>
+            <td>.rdata</td>
+            <td>存储只读数据（如字符串常量、常量数组）</td>
+        </tr>
+        <tr>
+            <td>.idata</td>
+            <td>存储导入表（记录程序调用了哪些外部DLL的函数）</td>
+        </tr>
+        <tr>
+            <td>.edata</td>
+            <td>存储导出表（记录DLL提供了哪些函数供其他程序调用）</td>
+        </tr>
+        <tr>
+            <td>.rsrc</td>
+            <td>存储资源（如图标、对话框、字符串表等）</td>
+        </tr>
+        <tr>
+            <td>.reloc</td>
+            <td>存储重定位信息（如果程序不能加载到默认基址，需要调整某些地址）</td>
+        </tr>
+        <tr>
+            <td>.bss</td>
+            <td>存储未初始化的全局/静态变量（在磁盘上不占空间，内存中分配）</td>
+        </tr>
+    </table>
+
+    <img src="media/image6.png" alt="节区头图示">
+    <p>图 6 节区头</p>
+
+    <h2 id="计算文件偏移">计算文件偏移</h2>
+    <p>RAW（文件中的物理偏移） = RVA（数据在内存中的地址相对于PE文件加载基址(ImageBase)的偏移量） - VirtualAddress + PointorToRawData</p>
+    <p>在这个文件截图中以.text节区头为例，RVA = 0x1000，VirtualAddress = 0x1000，PointorToRawData = 0x0400，算得RAW = 0x0400。</p>
+    <p>程序运行时CPU和操作系统访问的都是VA（虚拟地址）。RAW、RVA、VA三者转换关系为：</p>
+    <p>RAW（磁盘中的物理偏移，与内存无关） -> RVA（加载到内存，是PE文件内部的相对偏移，用于静态分析） -> VA（运行时访问）</p>
+    <p><strong>注意：</strong>ImageBase是内存的优先基地址，系统在装载文件时在能按ImageBase装载文件的情况下，计算VA使用上面的公式。但是不排除有时系统不按ImageBase装载文件（比如多个.dll文件ImageBase地址重叠导致地址占用），此时会进行重定位，选择一个新的加载地址ActualBase，计算时应使用VA = ActualBase + RVA。</p>
+</body>
+</html>
